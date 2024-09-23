@@ -1,0 +1,61 @@
+interface Items {
+  items: Array<Item>
+  after: string
+  limit: integer
+  total: integer
+}
+interface Item {
+  id: string
+  parents: Array<string>
+}
+  // fetch config is basically the parentId and a cursor in an object { parentId, searchAfter }
+  const [fetchConfig, setFetchConfig] = useState(initialFetchConfig)
+  const previousFetchConfig = usePrevious(fetchConfig)
+  
+  // the query needs to alter the currently cached state and return that, since we are only partially updating the tree state
+  const fetchTreeData = (key, variables) => {
+    const state = queryCache.getQueryData(key) as Map<string, any>
+    console.log('Fetching', variables)
+    return fetchNodes(state, query, variables, limit)
+  }
+
+  const { status, data: rawTreeData, error, refetch } = useQuery({
+    queryKey: treeId, // unique key that identifies the state of the entire tree
+    queryFn: fetchTreeData,
+    variables: [fetchConfig]
+  })
+
+  // this is a workaround to supply additional parameters to the query and reuse the currently cached state, refetch unfortunately does not support optional query variables to be passed
+  useEffect(() => {
+    if (previousFetchConfig !== fetchConfig) {
+      refetch()
+    }
+  })
+
+  // on expansion we set the next fetch config 
+  const onExpandNode = (node) => {
+    const { parentId, searchAfter } = node
+    setFetchConfig([{ parentId, searchAfter }])
+    // it would be nice to use refetch here to return the promse for the tree so it won't stop the loading animation, but we cannot supply query parameters
+    return Promise.resolve() 
+  }
+  
+  if (status === 'loading') {
+    return <Spinner />
+  } else {
+    // this just converts the remote data to the Tree UI model
+    const treeData = mapToTreeData(rawTreeData)
+    return (
+      <Tree
+        showIcon
+        defaultExpandedKeys={defaultExpandedKeys}
+        loadData={(node) => onExpandNode(node)}
+        treeData={treeData}
+      />
+    )
+  }
+const onExpandNode = (node) => {
+    const { parentId, searchAfter } = node
+    // this is basically a workaround to call my 'queryFn' function but with an updated set of variables that should not be part of the queryKey. 
+    return refetch({ __queryFn: () => fetchTreeData(treeId, [{ parentId, searchAfter }]) }).then(() => {})
+}
